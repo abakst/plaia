@@ -1,0 +1,94 @@
+grammar;
+
+use std::str::FromStr;
+use crate::language::plaia::ast::*;
+
+Num: u64 = <s:r"[0-9]+"> => u64::from_str(s).unwrap();
+
+Ident : String = {
+    r"[a-zA-Z_]+" => (<>).to_string()
+}
+
+pub Symb: Symbol = {
+  <i:Ident> => Symbol::new(i)
+}
+
+pub ExprKind: ExprKind = {
+  "(" <e:ExprKind> ")" => e,
+  <n:Num>      => ExprKind::Lit(n),
+  <x:Symb>     => ExprKind::Var(x),
+
+  "&" <e:Expr> => ExprKind::Ref(Box::new(e)),
+  "*" <e:Expr> => ExprKind::Deref(Box::new(e)),
+
+  <f:Symb> "(" <args:Comma<Expr>> ")" =>
+    ExprKind::FunCall(f, args)
+}
+
+pub Expr: Expr = {
+  <lo:@L> <e: ExprKind> <hi:@R> =>
+    Expr {
+      expr: e,
+      loc: (lo, hi)
+    }
+}
+
+pub LValKind: LValKind = {
+  <s:Symb> => LValKind::VarRef(s)
+}
+
+pub LVal: LVal = {
+  <lo:@L> <lvalk:LValKind> <hi:@R> =>
+  LVal {
+    lval: lvalk,
+    loc: (lo, hi)
+  }
+}
+
+pub Type: Type = {
+  "(" <t:Type> ")" => t,
+  "u64"            => Type::U64,
+  <t:Type> "*"     => Type::Ptr(Box::new(t))
+}
+
+pub TypeBind: TypeBind = {
+  <l:@L> <x:Symb> ":" <t:Type> <r:@R> => TypeBind::new(x, t, (l, r))
+}
+
+pub StatementKind: StatementKind = {
+  "let" <ty:TypeBind>              ";" => StatementKind::VarDecl(ty, None),
+  "let" <ty:TypeBind> "=" <e:Expr> ";" => StatementKind::VarDecl(ty, Some(e)),
+  <l:Expr> "=" <e:Expr>            ";" => StatementKind::Assign(l, e),
+  "{" <ss:Statement*> "}"              => StatementKind::new_block(ss)
+}
+
+pub Statement: Statement = {
+   <lo:@L> <stmtk: StatementKind> <hi:@R> =>
+   Statement {
+     stmt: stmtk,
+     loc: (lo, hi)
+   }
+}
+
+pub FnDecl: FnDecl = {
+  <lo:@L> "def" <name:Symb> "(" <params:Comma<TypeBind>> ")" "=" <body:Statement> <hi:@R> =>
+  FnDecl { name: name, params: params, body: body, loc: (lo, hi) }
+}
+
+pub Module: Module = {
+  <l:@L> <globals:TypeBind*> <functions:FnDecl*> <r:@R> =>
+    Module { globals: globals, functions: functions, loc: (l,r) }
+}
+
+// Helpers:
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+};
