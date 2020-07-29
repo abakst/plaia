@@ -13,9 +13,19 @@ pub Symb: Symbol = {
   <i:Ident> => Symbol::new(i)
 }
 
+pub LiteralKind: LiteralKind = {
+  "true"       => LiteralKind::LBool(true),
+  "false"      => LiteralKind::LBool(false),
+  <n:Num>      => LiteralKind::LInt(n)
+}
+
+pub Lit: Lit = {
+  <l:@L> <lit:LiteralKind> <r:@R> => Lit { lit:lit, loc: (l,r) }
+}
 pub ExprKind: ExprKind = {
   "(" <e:ExprKind> ")" => e,
-  <n:Num>      => ExprKind::Lit(n),
+
+  <l:Lit>      => ExprKind::Lit(l),
   <x:Symb>     => ExprKind::Var(x),
 
   "&" <e:Expr> => ExprKind::Ref(Box::new(e)),
@@ -48,6 +58,7 @@ pub LVal: LVal = {
 pub Type: Type = {
   "(" <t:Type> ")" => t,
   "u64"            => Type::U64,
+  "bool"           => Type::Bool,
   <t:Type> "*"     => Type::Ptr(Box::new(t))
 }
 
@@ -59,7 +70,8 @@ pub StatementKind: StatementKind = {
   "let" <ty:TypeBind>              ";" => StatementKind::VarDecl(ty, None),
   "let" <ty:TypeBind> "=" <e:Expr> ";" => StatementKind::VarDecl(ty, Some(e)),
   <l:Expr> "=" <e:Expr>            ";" => StatementKind::Assign(l, e),
-  "{" <ss:Statement*> "}"              => StatementKind::new_block(ss)
+  "{" <ss:Statement*> "}"              => StatementKind::new_block(ss),
+  "if" <e:Expr> "then" <s:Statement>   => if_statement(e, s)
 }
 
 pub Statement: Statement = {
