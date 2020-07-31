@@ -1,6 +1,6 @@
 use std::option::*;
 
-type Loc = (usize, usize);
+pub type Loc = (usize, usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Symbol {
@@ -13,7 +13,7 @@ impl Symbol {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinOp {
     Add,
     Sub,
@@ -28,19 +28,19 @@ pub enum Type {
     Ptr(Box<Type>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LiteralKind {
     LBool(bool),
     LInt(u64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Lit {
     pub lit: LiteralKind,
     pub loc: Loc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     Lit(Lit),
     Var(Symbol),
@@ -50,18 +50,18 @@ pub enum ExprKind {
     FunCall(Symbol, Vec<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub expr: ExprKind,
     pub loc: Loc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LValKind {
     VarRef(Symbol),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LVal {
     pub lval: LValKind,
     pub loc: Loc,
@@ -84,31 +84,31 @@ impl TypeBind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PatternKind {
     PWild,
     PSymbol(Symbol),
     PLiteral(Lit)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Pattern {
     pub pattern: PatternKind,
     pub loc: Loc
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CaseBranchKind {
     CaseArm(Pattern, Box<Statement>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CaseBranch {
     pub branch: CaseBranchKind,
     pub loc: Loc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StatementKind {
     VarDecl(TypeBind, Option<Expr>),
     Assign(Expr, Expr),
@@ -140,7 +140,7 @@ impl StatementKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Statement {
     pub stmt: StatementKind,
     pub loc: Loc,

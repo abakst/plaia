@@ -1,205 +1,157 @@
 use plaia_language::language::plaia::ast::*;
-use std::collections::HashMap;
+use plaia_language::language::plaia::ast::{Statement};
 
-trait Evaluator<A> {
-    type V;
-    type L;
+// fn foo<E>(e: E, x: &Symbol) -> impl (Fn(E) -> u64)
+// where E: Eval<A, L = u64,V = u64>
+// {
+//     e.find(x, |loc| ({ move |_s| loc }))
+// }
+
+pub trait Evaluator
+{
+    type V : Copy;
+    type L : Copy;
     // V : Value
     // L : Location
     //
     // The store maps symbols (variables) to locations
     // The heap maps locations to values
-    fn find_store(&mut self, s: &Symbol) -> dyn Evaluator<A, V = Self::V, L = Self::L>;
 
-    fn find_heap(&mut self, l: &Self::L) -> Self::V;
-    fn update_store(&mut self, x: &Symbol, l: &Self::L);
-    fn update_heap(&mut self, l: &Self::L, l: Self::V);
-    fn alloc(&mut self) -> Self::L;
+    fn find_store<R,K>(&mut self, s: &Symbol, k: &K) -> R
+        where K: Fn(&mut Self, Self::L) -> R;
+    fn find_heap<R,K>(&mut self, s: &Self::L, k: &K) -> R
+        where K: Fn(&mut Self, Self::V) -> R;
 
-    // "Meaning"
-    fn denote(&mut self, o: BinOp, e1: Self::V, e2: Self::V) -> Self::V;
-    fn inj_val(&mut self, v: Lit) -> Self::V;
-    fn inj_loc(&mut self, l: Self::L) -> Self::V;
-    fn unwrap_ptr(&mut self, v: Self::V) -> Self::L;
-    fn bind<B, K>(k: K) -> dyn Evaluator<B, V = Self::V, L = Self::L>
-    where K:  FnMut(Self, A) -> B;
+    fn alloc<R,K>(&mut self, k: &K) -> R
+        where K: Fn(&mut Self, Self::L) -> R;
+
+    fn update_store<K,R>(&mut self, x: &Symbol, l: &Self::L, k: &K) -> R
+        where K: Fn(&mut Self) -> R;
+
+    fn update_heap<K,R>(&mut self, l: &Self::L, v: Self::V, k: &K) -> R
+        where K: Fn(&mut Self) -> R;
+
+    // // "Meaning"
+    fn denote<R,K>(&mut self, o: &BinOp, e1: Self::V, e2: Self::V, k: &K) -> R
+        where K: Fn(&mut Self, Self::V) -> R;
+
+    fn inj_val(&self, v: &Lit) -> Self::V;
+    fn inj_loc(&self, l: Self::L) -> Self::V;
+    fn unwrap_ptr(&self, v: Self::V) -> Self::L;
 }
 
-// A simple implementation:
-pub type SimpleAddr = usize;
-
-#[derive(Debug, Clone)]
-pub enum SimpleValue {
-    VInt(u64),
-    VAddr(SimpleAddr),
-}
-
-type SimpleStore = HashMap<Symbol, SimpleAddr>;
-struct SimpleEvaluator<A> {
-    answer: Option<A>,
-    heap: Vec<SimpleValue>,
-    frames: Vec<SimpleStore>,
-    cur_frame: usize,
-}
-
-impl<A> Evaluator<A> for SimpleEvaluator<A> {
-    type V = SimpleValue;
-    type L = SimpleAddr;
-
-    fn find_store(mut self, s: &Symbol) -> SimpleEvaluator<A>
-    {
-        let l = *self.frames[self.cur_frame].get(s).unwrap();
-        self.answer = Some(l);
-        self
-    }
-
-    fn find_heap(&mut self, l: &SimpleAddr) -> SimpleValue {
-        self.heap[*l].clone()
-    }
-
-    fn update_store(&mut self, s: &Symbol, l: &SimpleAddr) {
-        self.frames[self.cur_frame].insert(s.clone(), *l);
-    }
-
-    fn update_heap(&mut self, l: &SimpleAddr, v: SimpleValue) {
-        self.heap[*l] = v;
-    }
-
-    fn alloc(&mut self) -> SimpleAddr {
-        self.heap.push(SimpleValue::VInt(0));
-        self.heap.len() - 1
-    }
-
-    fn denote(&mut self, _o: BinOp, _v1: SimpleValue, _v2: SimpleValue) -> SimpleValue {
-        panic!("Not implemented!")
-    }
-
-    fn inj_val(&mut self, l: Lit) -> SimpleValue {
-        match l.lit {
-            LiteralKind::LInt(v) => SimpleValue::VInt(v),
-            _ => panic!("ASDF"),
-        }
-    }
-
-    fn inj_loc(&mut self, v: SimpleAddr) -> SimpleValue {
-        SimpleValue::VAddr(v)
-    }
-
-    fn unwrap_ptr(&mut self, v: SimpleValue) -> SimpleAddr {
-        if let SimpleValue::VAddr(addr) = v {
-            addr
-        } else {
-            panic!("Not an address!")
-        }
-    }
-}
-
-fn eval_lval<E, K>(eval: &mut E, mut k: K, e: Expr) -> E::L
+fn eval_lval<E,Kont:?Sized,Rec:?Sized,R>(eval: &mut E, e: &Expr, r: &Rec, ret: &Kont) -> R
 where
-    E: Evaluator,
-    K: FnMut(&mut E, Expr, fn(&mut E, E::V) -> E::L) -> E::L,
+    E:    Evaluator,
+    Rec:  Fn(&mut E, &Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+    Kont: Fn(&mut E, E::L) -> R,
 {
-    match e.expr {
-        ExprKind::Var(x) => eval.find_store(&x, |_eval, l| l),
+    match &e.expr {
+        ExprKind::Var(x)   => eval.find_store(&x, &|e, l| ret(e, l)),
         ExprKind::Deref(e) => {
-            k(eval, *e, |eval1, v| eval1.unwrap_ptr(v))
-        }
-        _ => panic!("Not an LVal!"),
+            r(eval, &e, &|eval1, ptrval| {
+                let loc = eval1.unwrap_ptr(ptrval);
+                ret(eval1, loc)
+            })
+        },
+        _ => panic!("Not an LVal!"), //TODO: There should be a `fail` trait method..or continuation?
     }
 }
 
-fn eval_expr<B,K,E>(eval: E, k: K, e: Expr, bind: B) -> E::V
+pub fn eval_expr<E,Rec:?Sized,Kont:?Sized,R>(eval: &mut E, e: &Expr, r: &Rec, ret: &Kont) -> R
 where
-    E: Evaluator,
-    K: FnMut(E, Expr, B) -> E::V,
-    B: FnMut(E, E::V) -> E::V
+    E:    Evaluator,
+    Rec:  Fn(&mut E, &Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+    Kont: Fn(&mut E, E::V) -> R,
 {
-    match e.expr {
-        ExprKind::Lit(l) => eval.inj_val(l),
-        ExprKind::Var(x) => eval.find_store(&x, |eval1, l| eval1.find_heap(&l)),
+    match &e.expr {
+        ExprKind::Lit(l) => {
+            let v = eval.inj_val(l);
+            ret(eval, v)
+        },
+        ExprKind::Var(x) => {
+            eval.find_store(&x, &|eval: &mut E, l:E::L| {
+                eval.find_heap(&l, &|eval, val| {
+                    ret(eval, val)
+                })
+            })
+        },
         ExprKind::Binary(o, lhs, rhs) => {
-            k(eval, *lhs, |eval1: E, v1: E::V| {
-                v1
-                // k(eval1, *rhs, |eval2: E, v2| {
-                //     eval2.denote(o, v1, v2)
-                // })
+            let with_e1 = &|eval: &mut E, lhsval| {
+                r(eval, &rhs, &|eval: &mut E, rhsval| {
+                    eval.denote(&o, lhsval, rhsval, &|eval, v| ret(eval, v))
+                })
+            };
+            r(eval, &lhs, with_e1)
+        },
+        ExprKind::Ref(e) => {
+            eval_lval(eval, e, r, &|eval1: &mut E, loc: E::L| {
+                let ptr = eval1.inj_loc(loc);
+                ret(eval1, ptr)
             })
         }
-        // ExprKind::Ref(e) => {
-        //     let lv = eval_lval(eval, k, *e);
-        //     eval.inj_loc(lv)
-        // }
-        // ExprKind::Deref(e) => {
-        //     let vptr = k(eval, *e); // ptr should be a location
-        //     let ptr = eval.unwrap_ptr(vptr);
-        //     eval.find_heap(&ptr)
-        // }
-        _ => panic!("NotImplemented!"),
+        ExprKind::Deref(e) => {
+            let k = &|eval: &mut E, ptr:E::V| {
+                //  This continuation will get the result of calling `eval` on e.
+                //  This should be a pointer, so unwrap it:
+                let loc = &eval.unwrap_ptr(ptr);
+                // Now get the value at the unwrapped location
+                eval.find_heap(loc, &|eval: &mut E, val:E::V| {
+                    ret(eval, val)
+                })
+            };
+            r(eval, &e, k)
+        }
+        _ => todo!("eval_expr!"),
     }
 }
 
-fn run_stmt<E, KE, KS>(eval: &mut E, mut ke: KE, mut ks: KS, s: Statement)
+pub fn run_stmt<E,Kont:?Sized,EvalRec:?Sized,StmtRec:?Sized,R>(eval: &mut E, s: &Statement, expr_rec: &EvalRec, rec: &StmtRec, ret: &Kont) -> R
 where
     E: Evaluator,
-    KE: FnMut(&mut E, Expr) -> E::V,
-    KS: FnMut(&mut E, Statement),
+    Kont: Fn(&mut E) -> R,
+    EvalRec: Fn(&mut E, &Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+    StmtRec: Fn(&mut E, &Statement, &(dyn Fn(&mut E) -> R)) -> R,
 {
-    match s.stmt {
+    match &s.stmt {
         StatementKind::Block(ss) => {
-            for stmt in ss {
-                ks(eval, stmt);
+            if ss.is_empty() {
+                ret(eval)
+            } else {
+                let mut sss = ss.clone();
+                let s0 = sss.remove(0);
+                let new =  Statement { stmt: StatementKind::Block(sss), ..*s };
+                let k : &(dyn Fn(&mut E) -> R)= &|e: &mut E| { rec(e, &new, &|ee| ret(ee)) };
+                rec(eval, &s0, k)
             }
         }
+
         StatementKind::Assign(lhs, rhs) => {
-            let v = ke(eval, rhs);
-            let loc = eval_lval(eval, ke, lhs);
-            eval.update_heap(&loc, v)
+            expr_rec(eval, &rhs, &|eval: &mut E, val: E::V| {
+                eval_lval(eval, &lhs, expr_rec, &|eval: &mut E, lval: E::L| {
+                    eval.update_heap(&lval, val, &|eval: &mut E| ret(eval))
+                })
+            })
         }
-        StatementKind::VarDecl(tb, oe) => {
-            let l = eval.alloc();
-            eval.update_store(&tb.name, &l);
-
-            if let Some(exp) = oe {
-                let v = ke(eval, exp);
-                eval.update_heap(&l, v);
-            }
+        StatementKind::VarDecl(tb, Some(exp)) => {
+            expr_rec(eval, &exp, &|eval, value| {
+                eval.alloc(&|eval: &mut E, loc: E::L| {
+                    eval.update_store(&tb.name, &loc, &|eval| {
+                        eval.update_heap(&loc, value, &|eval| ret(eval))
+                    })
+                })
+            })
         }
-        StatementKind::Case(discr, branches) => {
-            let b = ke(eval, discr);
-            for br in branches {}
-            panic!("not implemented!")
+        StatementKind::VarDecl(tb, _) => {
+            eval.alloc(&|eval: &mut E, loc: E::L| {
+                eval.update_store(&tb.name, &loc, &|eval| ret(eval))
+            })
         }
-    }
-}
-
-fn simple_cb(eval: &mut SimpleEvaluator, e: Expr) -> SimpleValue {
-    eval_expr(eval, simple_cb, e)
-}
-fn simple_stmt_cb(eval: &mut SimpleEvaluator, s: Statement) {
-    run_stmt(eval, simple_cb, simple_stmt_cb, s)
-}
-
-pub fn simple_eval(e: Expr) -> SimpleValue {
-    let frame0 = HashMap::new();
-    let mut eval = SimpleEvaluator {
-        heap: Vec::new(),
-        cur_frame: 0,
-        frames: vec![frame0],
-    };
-    eval_expr(&mut eval, simple_cb, e)
-}
-
-pub fn simple_run(s: Statement) {
-    let frame0 = HashMap::new();
-    let mut eval = SimpleEvaluator {
-        heap: Vec::new(),
-        cur_frame: 0,
-        frames: vec![frame0],
-    };
-    run_stmt(&mut eval, simple_cb, simple_stmt_cb, s);
-
-    for (k, l) in &eval.frames[eval.cur_frame] {
-        let v = eval.heap.get(*l);
-        println!("{:?} => {:?}", k, v);
+        // StatementKind::Case(discr, branches) => {
+        //     let b = ke(eval, discr);
+        //     for br in branches {}
+        //     panic!("not implemented!")
+        // }
+        _ => todo!()
     }
 }
