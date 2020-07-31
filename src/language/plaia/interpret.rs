@@ -118,11 +118,16 @@ where
             if ss.is_empty() {
                 ret(eval)
             } else {
-                let mut sss = ss.clone();
-                let s0 = sss.remove(0);
-                let new =  Statement { stmt: StatementKind::Block(sss), ..*s };
-                let k : &(dyn Fn(&mut E) -> R)= &|e: &mut E| { rec(e, &new, &|ee| ret(ee)) };
-                rec(eval, &s0, k)
+                let base : Box<(dyn Fn(&mut E) -> R)>
+                    = Box::new(|e: &mut E| { ret(e) });
+
+                ss.iter().rev().fold(base, |acc, s| {
+                    Box::new(move |e: &mut E| {
+                        rec(e, &s, &|e: &mut E| {
+                            acc(e)
+                        })
+                    })
+                })(eval)
             }
         }
 

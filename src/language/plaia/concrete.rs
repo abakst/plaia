@@ -7,7 +7,7 @@ pub type SimpleAddr = usize;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SimpleValue {
-    VInt(u64),
+    VInt(i64),
     VAddr(SimpleAddr),
 }
 
@@ -170,7 +170,7 @@ pub fn concrete_eval<Val:ValCompute<SimpleAddr>>(e: Expr) -> Val {
     eval_expr(&mut eval, &e, &concrete_cb, &|_eval, v| v)
 }
 
-pub fn concrete_run<Val:ValCompute<SimpleAddr> + std::fmt::Debug>(s: Statement) {
+pub fn concrete_run<Val:ValCompute<SimpleAddr> + std::fmt::Debug>(s: Statement, p: Option<&str>) {
     let frame0 = HashMap::new();
     let mut eval = ConcreteEvaluator::<Val> {
         heap: Vec::new(),
@@ -179,13 +179,18 @@ pub fn concrete_run<Val:ValCompute<SimpleAddr> + std::fmt::Debug>(s: Statement) 
         trace: Vec::new()
     };
     run_stmt(&mut eval, &s, &concrete_cb, &tracing_concrete_stmt_cb, &|_e| ());
+    let h  = eval.heap.clone();
+    let st = eval.frames[eval.cur_frame].clone();
+    eval.trace.push((h, st, s.loc));
 
     println!("Trace: ");
-    for (h, st, loc) in &eval.trace {
-        println!("State: {:?}", loc);
+    for (h, st, (lo, hi)) in &eval.trace {
         for (k,l) in st {
             let v = h.get(*l);
             println!("\t{:?} => {:?}", k, v);
+        }
+        if let Some(pp) = p {
+            println!("{}", &pp[*lo..*hi])
         }
     }
 }

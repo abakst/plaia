@@ -3,7 +3,10 @@ grammar;
 use std::str::FromStr;
 use crate::language::plaia::ast::*;
 
-Num: u64 = <s:r"[0-9]+"> => u64::from_str(s).unwrap();
+Num: i64 = {
+  <s:r"[0-9]+"> => i64::from_str(s).unwrap(),
+  "-" <s:r"[0-9]+"> => 0 - i64::from_str(s).unwrap(),
+}
 
 Ident : String = {
     r"[a-zA-Z_]+" => (<>).to_string()
@@ -22,17 +25,54 @@ pub LiteralKind: LiteralKind = {
 pub Lit: Lit = {
   <l:@L> <lit:LiteralKind> <r:@R> => Lit { lit:lit, loc: (l,r) }
 }
-pub ExprKind: ExprKind = {
-  "(" <e:ExprKind> ")" => e,
 
-  <l:Lit>      => ExprKind::Lit(l),
-  <x:Symb>     => ExprKind::Var(x),
+pub ExprOp: BinOp = {
+ "+" => BinOp::Add,
+ "-" => BinOp::Sub,
+}
 
-  "&" <e:Expr> => ExprKind::Ref(Box::new(e)),
-  "*" <e:Expr> => ExprKind::Deref(Box::new(e)),
+pub FactorOp: BinOp = {
+ "*" => BinOp::Mul,
+ "/" => BinOp::Div,
+}
 
+pub TermKind: ExprKind = {
+  <l:Lit>   => ExprKind::Lit(l),
+  <x:Symb>  => ExprKind::Var(x),
+  "&" <e:Term> => ExprKind::Ref(Box::new(e)),
+  "*" <e:Term> => ExprKind::Deref(Box::new(e)),
   <f:Symb> "(" <args:Comma<Expr>> ")" =>
-    ExprKind::FunCall(f, args)
+    ExprKind::FunCall(f, args),
+  "(" <e:ExprKind> ")" => e,
+}
+
+pub FactorKind: ExprKind = {
+  <l:Factor> <op:FactorOp> <t:Term> =>
+    ExprKind::Binary(op, Box::new(l), Box::new(t)),
+  TermKind,
+}
+
+pub Term: Expr = {
+ <lo:@L> <t: TermKind> <hi:@R> =>
+   Expr {
+     expr: t,
+     loc: (lo, hi)
+   }
+}
+
+pub Factor: Expr = {
+ <lo:@L> <f: FactorKind> <hi:@R> =>
+   Expr {
+     expr: f,
+     loc: (lo, hi)
+   }
+}
+
+pub ExprKind: ExprKind = {
+  <lhs:Expr> <op:ExprOp> <rhs:Factor> =>
+    ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
+
+  <f:FactorKind> => f,
 }
 
 pub Expr: Expr = {
@@ -57,7 +97,7 @@ pub LVal: LVal = {
 
 pub Type: Type = {
   "(" <t:Type> ")" => t,
-  "u64"            => Type::U64,
+  "i64"            => Type::I64,
   "bool"           => Type::Bool,
   <t:Type> "*"     => Type::Ptr(Box::new(t))
 }

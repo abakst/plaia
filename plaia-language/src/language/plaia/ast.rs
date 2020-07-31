@@ -13,7 +13,7 @@ impl Symbol {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum BinOp {
     Add,
     Sub,
@@ -21,20 +21,20 @@ pub enum BinOp {
     Div,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Type {
-    U64,
+    I64,
     Bool,
     Ptr(Box<Type>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum LiteralKind {
     LBool(bool),
-    LInt(u64),
+    LInt(i64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Lit {
     pub lit: LiteralKind,
     pub loc: Loc,

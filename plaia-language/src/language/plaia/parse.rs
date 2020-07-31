@@ -15,12 +15,25 @@ pub fn parse_module(inp: &str) -> Module {
     plaia::ModuleParser::new().parse(inp).unwrap()
 }
 
-#[test]
-fn test_expr() {
-    let e = parse_expression("3");
-    if let ExprKind::Lit(l) = e.expr {
-        assert!(l == 3);
-    } else {
-        assert!(false);
+#[cfg(test)]
+mod tests {
+    use crate::language::plaia::parse::parse_expression;
+    use crate::language::plaia::ast::*;
+
+    #[test]
+    fn test_expr() {
+        let e = parse_expression("3");
+        if let ExprKind::Lit(l) = e.expr {
+            assert_eq!(l.lit, LiteralKind::LInt(3));
+        } else {
+            assert!(false);
+        }
     }
+
+    #[test]
+    fn test_expr1() {
+        let e = parse_expression("f(1, 2, 3) + 4*6");
+        println!("{:?}", e)
+    }
+
 }
