@@ -17,6 +17,11 @@ impl ValCompute<SimpleAddr> for SignedValue {
         SignedValue::VZero
     }
 
+    fn matches(&self, pat: &PatternKind) -> Option<bool>
+    {
+        todo!()
+    }
+
     fn op(o: &BinOp, e1: Self, e2: Self) -> Self {
         match (o, e1, e2) {
             (BinOp::Add, v1, v2) if v1 == v2    => v1,

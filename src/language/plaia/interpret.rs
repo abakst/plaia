@@ -34,6 +34,10 @@ pub trait Evaluator
     // // "Meaning"
     fn denote<R,K>(&mut self, o: &BinOp, e1: Self::V, e2: Self::V, k: &K) -> R
         where K: Fn(&mut Self, Self::V) -> R;
+    fn do_match<R,K1,K2>(&mut self, p: &PatternKind, v: &Self::V, yes: &K1, no: &K2) -> R
+    where
+        K1: Fn(&mut Self) -> R,
+        K2: Fn(&mut Self) -> R;
 
     fn inj_val(&self, v: &Lit) -> Self::V;
     fn inj_loc(&self, l: Self::L) -> Self::V;
@@ -152,11 +156,22 @@ where
                 eval.update_store(&tb.name, &loc, &|eval| ret(eval))
             })
         }
-        // StatementKind::Case(discr, branches) => {
-        //     let b = ke(eval, discr);
-        //     for br in branches {}
-        //     panic!("not implemented!")
-        // }
+        StatementKind::Case(discr, branches) => {
+            expr_rec(eval, discr, &|eval, discrval| {
+                let base : Box<(dyn Fn(&mut E) -> R)>
+                    = Box::new(|e: &mut E| { ret(e) });
+
+                branches.iter().rev().fold(base, |acc, branch| {
+                    let CaseBranchKind::CaseArm(pat, stmt) = &branch.branch;
+                    Box::new(move |e: &mut E| {
+                        e.do_match(&pat.pattern,
+                                      &discrval,
+                                      &|eval: &mut E| rec(eval, stmt, &|e: &mut E| { ret(e) }),
+                                      &|eval: &mut E| acc(eval))
+                    })
+                })(eval)
+            })
+        }
         _ => todo!()
     }
 }
