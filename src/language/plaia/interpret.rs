@@ -1,12 +1,6 @@
 use plaia_language::language::plaia::ast::*;
 use plaia_language::language::plaia::ast::{Statement};
 
-// fn foo<E>(e: E, x: &Symbol) -> impl (Fn(E) -> u64)
-// where E: Eval<A, L = u64,V = u64>
-// {
-//     e.find(x, |loc| ({ move |_s| loc }))
-// }
-
 pub trait Evaluator<R>
 {
     type V : Clone;
@@ -45,16 +39,8 @@ pub trait Evaluator<R>
     fn unwrap_ptr(&self, v: Self::V) -> Self::L;
 
     fn fn_decl(&self, f: &Symbol) -> FnDecl;
-    // fn with_fn_decl<K:?Sized>(&mut self, f: &Symbol, k: Box<K>) -> R
-    // where
-    //     K: FnOnce(&mut Self, &FnDecl) -> R;
 }
 
-// fn eval_lval<'l,E,Kont,Rec:?Sized,R>(eval: &mut E, e: &'l Expr, r: &'l Rec, ret: &Kont) -> R
-// where
-//     E:    Evaluator<R>,
-//     Rec:  Fn(&mut E, &'l Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
-//     Kont: ?Sized + Fn(&mut E, E::L) -> R,
 fn eval_lval<E,Kont,Rec:?Sized,R>(eval: &mut E, e: & Expr, r: & Rec, ret: &Kont) -> R
 where
     E:    Evaluator<R>,
@@ -73,12 +59,6 @@ where
     }
 }
 
-// pub fn eval_expr<'l,E:'l,StmtRec:?Sized,Rec:?Sized,Kont,R:'l>(eval: &mut E, e: &'l Expr, r: &'l Rec, stmt_rec: &'l StmtRec, ret: &'l Kont) -> R
-// where
-//     E:    Evaluator<R>,
-//     Rec:  Fn(&mut E, &'l Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
-//     StmtRec: Fn(&mut E, &Statement, &(dyn Fn(&mut E) -> R)) -> R,
-//     Kont: ?Sized + Fn(&mut E, E::V) -> R,
 pub fn eval_expr<E,StmtRec:?Sized,Rec:?Sized,Kont,R>(eval: &mut E, e: & Expr, r: & Rec, stmt_rec: & StmtRec, ret: & Kont) -> R
 where
     E:    Evaluator<R>,
@@ -157,16 +137,9 @@ where
 
             call_with_args(eval, Vec::new())
         }
-        _ => todo!()
     }
 }
 
-// pub fn run_stmt<'l,E:'l,Kont,EvalRec:?Sized,StmtRec:?Sized,R:'l>(eval: &mut E, s: &'l Statement, expr_rec: &'l EvalRec, rec: &'l StmtRec, ret: &Kont) -> R
-// where
-//     E: Evaluator<R>,
-//     Kont: ?Sized + Fn(&mut E) -> R,
-//     EvalRec: Fn(&mut E, &'l Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
-//     StmtRec: Fn(&mut E, &'l Statement, &(dyn Fn(&mut E) -> R)) -> R,
 pub fn run_stmt<E,Kont:?Sized,EvalRec:?Sized,StmtRec:?Sized,R>(eval: &mut E, s: & Statement, expr_rec: & EvalRec, rec: & StmtRec, ret: &Kont) -> R
 where
     E: Evaluator<R>,
@@ -238,6 +211,5 @@ where
                 })(e, false)
             })
         }
-        _ => todo!(),
     }
 }
