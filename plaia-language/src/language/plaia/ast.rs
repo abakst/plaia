@@ -4,7 +4,7 @@ pub type Loc = (usize, usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Symbol {
-    name: String,
+    pub name: String,
 }
 
 impl Symbol {
@@ -14,11 +14,31 @@ impl Symbol {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
+pub enum UnOp {
+    Ref,
+    Deref,
+
+    Negate,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum BinOp {
     Add,
     Sub,
     Mul,
     Div,
+
+    Eq,
+    Neq,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
+
+    And,
+    Or,
+
+    Proj,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -26,6 +46,8 @@ pub enum Type {
     I64,
     Bool,
     Ptr(Box<Type>),
+    Tuple(Vec<Type>),
+    Vector(Box<Type>),
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -44,8 +66,7 @@ pub struct Lit {
 pub enum ExprKind {
     Lit(Lit),
     Var(Symbol),
-    Ref(Box<Expr>),
-    Deref(Box<Expr>),
+    Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
     FunCall(Symbol, Vec<Expr>),
 }
@@ -146,7 +167,7 @@ pub struct Statement {
     pub loc: Loc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FnDecl {
     pub name: Symbol,
     pub params: Vec<TypeBind>,
@@ -154,7 +175,7 @@ pub struct FnDecl {
     pub loc: Loc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module {
     pub globals: Vec<TypeBind>,
     pub functions: Vec<FnDecl>,

@@ -26,7 +26,21 @@ pub Lit: Lit = {
   <l:@L> <lit:LiteralKind> <r:@R> => Lit { lit:lit, loc: (l,r) }
 }
 
-pub ExprOp: BinOp = {
+pub BoolOp: BinOp = {
+ "&&" => BinOp::And,
+ "||" => BinOp::Or,
+}
+
+pub CompareOp: BinOp = {
+ "!=" => BinOp::Neq,
+ "==" => BinOp::Eq,
+ ">"  => BinOp::Gt,
+ "<"  => BinOp::Lt,
+ "<=" => BinOp::Lte,
+ ">=" => BinOp::Gte,
+}
+
+pub ArithExprOp: BinOp = {
  "+" => BinOp::Add,
  "-" => BinOp::Sub,
 }
@@ -37,18 +51,26 @@ pub FactorOp: BinOp = {
 }
 
 pub TermKind: ExprKind = {
-  <l:Lit>   => ExprKind::Lit(l),
-  <x:Symb>  => ExprKind::Var(x),
-  "&" <e:Term> => ExprKind::Ref(Box::new(e)),
-  "*" <e:Term> => ExprKind::Deref(Box::new(e)),
+  <l:Lit>      => ExprKind::Lit(l),
+  <x:Symb>     => ExprKind::Var(x),
+
+  "!" <e:Term> => ExprKind::Unary(UnOp::Negate, Box::new(e)),
+  "&" <e:Term> => ExprKind::Unary(UnOp::Ref, Box::new(e)),
+  "*" <e:Term> => ExprKind::Unary(UnOp::Deref, Box::new(e)),
+
   <f:Symb> "(" <args:Comma<Expr>> ")" =>
     ExprKind::FunCall(f, args),
+
   "(" <e:ExprKind> ")" => e,
 }
 
 pub FactorKind: ExprKind = {
   <l:Factor> <op:FactorOp> <t:Term> =>
     ExprKind::Binary(op, Box::new(l), Box::new(t)),
+
+  <e:Factor> "[" <i:Expr> "]" =>
+    ExprKind::Binary(BinOp::Proj, Box::new(e), Box::new(i)),
+
   TermKind,
 }
 
@@ -68,11 +90,41 @@ pub Factor: Expr = {
    }
 }
 
-pub ExprKind: ExprKind = {
-  <lhs:Expr> <op:ExprOp> <rhs:Factor> =>
+pub ArithExprKind: ExprKind = {
+  <lhs:ArithExpr> <op:ArithExprOp> <rhs:Factor> =>
     ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
 
   <f:FactorKind> => f,
+}
+
+pub ArithExpr: Expr = {
+ <lo:@L> <f: ArithExprKind> <hi:@R> =>
+   Expr {
+     expr: f,
+     loc: (lo, hi)
+   }
+}
+
+pub CompareExprKind: ExprKind = {
+  <lhs:CompareExpr> <op:CompareOp> <rhs:ArithExpr> =>
+    ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
+
+  ArithExprKind,
+}
+
+pub CompareExpr: Expr = {
+  <lo:@L> <e: CompareExprKind> <hi:@R> =>
+    Expr {
+      expr: e,
+      loc: (lo, hi)
+    }
+}
+
+pub ExprKind: ExprKind = {
+  <lhs:Expr> <op:BoolOp> <rhs:CompareExpr> =>
+    ExprKind::Binary(op, Box::new(lhs), Box::new(rhs)),
+
+  CompareExprKind,
 }
 
 pub Expr: Expr = {
@@ -96,10 +148,11 @@ pub LVal: LVal = {
 }
 
 pub Type: Type = {
-  "(" <t:Type> ")" => t,
-  "i64"            => Type::I64,
-  "bool"           => Type::Bool,
-  <t:Type> "*"     => Type::Ptr(Box::new(t))
+  "(" <t:Type> ")"       => t,
+  "i64"                  => Type::I64,
+  "bool"                 => Type::Bool,
+  <t:Type> "*"           => Type::Ptr(Box::new(t)),
+  "vec" "<" <t:Type> ">" => Type::Vector(Box::new(t)),
 }
 
 pub TypeBind: TypeBind = {

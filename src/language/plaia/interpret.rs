@@ -7,53 +7,64 @@ use plaia_language::language::plaia::ast::{Statement};
 //     e.find(x, |loc| ({ move |_s| loc }))
 // }
 
-pub trait Evaluator
+pub trait Evaluator<R>
 {
-    type V : Copy;
-    type L : Copy;
+    type V : Clone;
+    type L : Clone;
     // V : Value
     // L : Location
     //
     // The store maps symbols (variables) to locations
     // The heap maps locations to values
-
-    fn find_store<R,K>(&mut self, s: &Symbol, k: &K) -> R
+    fn find_store<K:?Sized>(&mut self, s: &Symbol, k: &K) -> R
         where K: Fn(&mut Self, Self::L) -> R;
-    fn find_heap<R,K>(&mut self, s: &Self::L, k: &K) -> R
+    fn find_heap<K:?Sized>(&mut self, s: &Self::L, k: &K) -> R
         where K: Fn(&mut Self, Self::V) -> R;
 
-    fn alloc<R,K>(&mut self, k: &K) -> R
+    fn alloc<K:?Sized>(&mut self, k: &K) -> R
         where K: Fn(&mut Self, Self::L) -> R;
-
-    fn update_store<K,R>(&mut self, x: &Symbol, l: &Self::L, k: &K) -> R
+    fn update_store<K:?Sized>(&mut self, x: &Symbol, l: &Self::L, k: &K) -> R
+        where K: Fn(&mut Self) -> R;
+    fn update_heap<K:?Sized>(&mut self, l: &Self::L, v: Self::V, k: &K) -> R
         where K: Fn(&mut Self) -> R;
 
-    fn update_heap<K,R>(&mut self, l: &Self::L, v: Self::V, k: &K) -> R
-        where K: Fn(&mut Self) -> R;
+    fn push_frame<K:?Sized>(&mut self, frame: Vec<(Symbol, Self::V)>, k: &K) -> R
+    where K: Fn(&mut Self) -> R;
+    fn pop_frame(&mut self);
+    fn return_loc(&mut self) -> Self::L;
 
     // // "Meaning"
-    fn denote<R,K>(&mut self, o: &BinOp, e1: Self::V, e2: Self::V, k: &K) -> R
+    fn denote<K:?Sized>(&mut self, o: &BinOp, e1: Self::V, e2: Self::V, k: &K) -> R
         where K: Fn(&mut Self, Self::V) -> R;
-    fn do_match<R,K1,K2>(&mut self, p: &PatternKind, v: &Self::V, yes: &K1, no: &K2) -> R
+    fn do_match<K:?Sized>(&mut self, p: &PatternKind, v: &Self::V, k: &K) -> R
     where
-        K1: Fn(&mut Self) -> R,
-        K2: Fn(&mut Self) -> R;
+        K: Fn(&mut Self, bool) -> R;
 
     fn inj_val(&self, v: &Lit) -> Self::V;
     fn inj_loc(&self, l: Self::L) -> Self::V;
     fn unwrap_ptr(&self, v: Self::V) -> Self::L;
+
+    fn fn_decl(&self, f: &Symbol) -> FnDecl;
+    // fn with_fn_decl<K:?Sized>(&mut self, f: &Symbol, k: Box<K>) -> R
+    // where
+    //     K: FnOnce(&mut Self, &FnDecl) -> R;
 }
 
-fn eval_lval<E,Kont:?Sized,Rec:?Sized,R>(eval: &mut E, e: &Expr, r: &Rec, ret: &Kont) -> R
+// fn eval_lval<'l,E,Kont,Rec:?Sized,R>(eval: &mut E, e: &'l Expr, r: &'l Rec, ret: &Kont) -> R
+// where
+//     E:    Evaluator<R>,
+//     Rec:  Fn(&mut E, &'l Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+//     Kont: ?Sized + Fn(&mut E, E::L) -> R,
+fn eval_lval<E,Kont,Rec:?Sized,R>(eval: &mut E, e: & Expr, r: & Rec, ret: &Kont) -> R
 where
-    E:    Evaluator,
-    Rec:  Fn(&mut E, &Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
-    Kont: Fn(&mut E, E::L) -> R,
+    E:    Evaluator<R>,
+    Rec:  Fn(&mut E, & Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+    Kont: ?Sized + Fn(&mut E, E::L) -> R,
 {
     match &e.expr {
-        ExprKind::Var(x)   => eval.find_store(&x, &|e, l| ret(e, l)),
-        ExprKind::Deref(e) => {
-            r(eval, &e, &|eval1, ptrval| {
+        ExprKind::Var(x)   => eval.find_store(&x, ret),
+        ExprKind::Unary(UnOp::Deref, e) => {
+            r(eval, &e, &|eval1: &mut E, ptrval| {
                 let loc = eval1.unwrap_ptr(ptrval);
                 ret(eval1, loc)
             })
@@ -62,11 +73,18 @@ where
     }
 }
 
-pub fn eval_expr<E,Rec:?Sized,Kont:?Sized,R>(eval: &mut E, e: &Expr, r: &Rec, ret: &Kont) -> R
+// pub fn eval_expr<'l,E:'l,StmtRec:?Sized,Rec:?Sized,Kont,R:'l>(eval: &mut E, e: &'l Expr, r: &'l Rec, stmt_rec: &'l StmtRec, ret: &'l Kont) -> R
+// where
+//     E:    Evaluator<R>,
+//     Rec:  Fn(&mut E, &'l Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+//     StmtRec: Fn(&mut E, &Statement, &(dyn Fn(&mut E) -> R)) -> R,
+//     Kont: ?Sized + Fn(&mut E, E::V) -> R,
+pub fn eval_expr<E,StmtRec:?Sized,Rec:?Sized,Kont,R>(eval: &mut E, e: & Expr, r: & Rec, stmt_rec: & StmtRec, ret: & Kont) -> R
 where
-    E:    Evaluator,
-    Rec:  Fn(&mut E, &Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
-    Kont: Fn(&mut E, E::V) -> R,
+    E:    Evaluator<R>,
+    Rec:  Fn(&mut E, & Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+    StmtRec: Fn(&mut E, &Statement, &(dyn Fn(&mut E) -> R)) -> R,
+    Kont: ?Sized + Fn(&mut E, E::V) -> R,
 {
     match &e.expr {
         ExprKind::Lit(l) => {
@@ -75,44 +93,83 @@ where
         },
         ExprKind::Var(x) => {
             eval.find_store(&x, &|eval: &mut E, l:E::L| {
-                eval.find_heap(&l, &|eval, val| {
-                    ret(eval, val)
-                })
+                eval.find_heap(&l, ret)
             })
         },
         ExprKind::Binary(o, lhs, rhs) => {
-            let with_e1 = &|eval: &mut E, lhsval| {
-                r(eval, &rhs, &|eval: &mut E, rhsval| {
-                    eval.denote(&o, lhsval, rhsval, &|eval, v| ret(eval, v))
+            let with_e1 = &move |eval: &mut E, lhsval: E::V| {
+                r(eval, &rhs, &move |eval: &mut E, rhsval: E::V| {
+                    eval.denote(&o, lhsval.clone(), rhsval, ret)
                 })
             };
             r(eval, &lhs, with_e1)
         },
-        ExprKind::Ref(e) => {
+        ExprKind::Unary(UnOp::Ref, e) => {
             eval_lval(eval, e, r, &|eval1: &mut E, loc: E::L| {
                 let ptr = eval1.inj_loc(loc);
                 ret(eval1, ptr)
             })
         }
-        ExprKind::Deref(e) => {
+        ExprKind::Unary(UnOp::Deref, e) => {
             let k = &|eval: &mut E, ptr:E::V| {
                 //  This continuation will get the result of calling `eval` on e.
                 //  This should be a pointer, so unwrap it:
                 let loc = &eval.unwrap_ptr(ptr);
                 // Now get the value at the unwrapped location
-                eval.find_heap(loc, &|eval: &mut E, val:E::V| {
-                    ret(eval, val)
-                })
+                eval.find_heap(loc, ret)
             };
             r(eval, &e, k)
         }
-        _ => todo!("eval_expr!"),
+        ExprKind::Unary(_op, _e) => todo!(),
+        ExprKind::FunCall(f, es) => {
+            let decl = eval.fn_decl(f);
+
+            let base : Box<(dyn Fn(&mut E, Vec<E::V>) -> R)>
+                = Box::new(move |e: &mut E, vs: Vec<E::V>| {
+                    // push args
+                    let in_frame : &(dyn Fn(&mut E) -> R)
+                        = &|e| {
+                            let body = Clone::clone(&decl.body);
+                            let with_stmt : &(dyn Fn(&mut E) -> R) = &|e| {
+                                e.pop_frame();
+                                let l = e.return_loc();
+                                e.find_heap(&l, ret)
+                            };
+                            stmt_rec(e, &body, with_stmt)
+                        };
+                    let args = decl.params
+                                   .iter()
+                                   .map(|tb| tb.name.clone())
+                                   .zip(vs)
+                                   .collect(); // TODO: Don't really need to do this?
+                    e.push_frame(args, in_frame)
+                });
+
+            let call_with_args = es.iter().rev().fold(base, |acc, arg_exp| {
+                Box::new(move |e, args| {
+                    r(e, arg_exp, &|e, v| {
+                        let mut args2 = args.clone();
+                        args2.push(v);
+                        acc(e, args2)
+                    })
+                })
+            });
+
+            call_with_args(eval, Vec::new())
+        }
+        _ => todo!()
     }
 }
 
-pub fn run_stmt<E,Kont:?Sized,EvalRec:?Sized,StmtRec:?Sized,R>(eval: &mut E, s: &Statement, expr_rec: &EvalRec, rec: &StmtRec, ret: &Kont) -> R
+// pub fn run_stmt<'l,E:'l,Kont,EvalRec:?Sized,StmtRec:?Sized,R:'l>(eval: &mut E, s: &'l Statement, expr_rec: &'l EvalRec, rec: &'l StmtRec, ret: &Kont) -> R
+// where
+//     E: Evaluator<R>,
+//     Kont: ?Sized + Fn(&mut E) -> R,
+//     EvalRec: Fn(&mut E, &'l Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
+//     StmtRec: Fn(&mut E, &'l Statement, &(dyn Fn(&mut E) -> R)) -> R,
+pub fn run_stmt<E,Kont:?Sized,EvalRec:?Sized,StmtRec:?Sized,R>(eval: &mut E, s: & Statement, expr_rec: & EvalRec, rec: & StmtRec, ret: &Kont) -> R
 where
-    E: Evaluator,
+    E: Evaluator<R>,
     Kont: Fn(&mut E) -> R,
     EvalRec: Fn(&mut E, &Expr, &(dyn Fn(&mut E, E::V) -> R)) -> R,
     StmtRec: Fn(&mut E, &Statement, &(dyn Fn(&mut E) -> R)) -> R,
@@ -136,42 +193,51 @@ where
         }
 
         StatementKind::Assign(lhs, rhs) => {
-            expr_rec(eval, &rhs, &|eval: &mut E, val: E::V| {
-                eval_lval(eval, &lhs, expr_rec, &|eval: &mut E, lval: E::L| {
-                    eval.update_heap(&lval, val, &|eval: &mut E| ret(eval))
-                })
+            expr_rec(eval, &rhs, &move |eval: &mut E, val: E::V| {
+                eval_lval(eval, &lhs, expr_rec, &move |eval, lval| eval.update_heap(&lval, val.clone(), ret))
             })
         }
+
         StatementKind::VarDecl(tb, Some(exp)) => {
-            expr_rec(eval, &exp, &|eval, value| {
+            expr_rec(eval, &exp, &move |eval, value| {
                 eval.alloc(&|eval: &mut E, loc: E::L| {
-                    eval.update_store(&tb.name, &loc, &|eval| {
-                        eval.update_heap(&loc, value, &|eval| ret(eval))
+                    eval.update_store(&tb.name, &loc, &|eval: &mut E| {
+                        eval.update_heap(&loc, value.clone(), ret)
                     })
                 })
             })
         }
+
         StatementKind::VarDecl(tb, _) => {
             eval.alloc(&|eval: &mut E, loc: E::L| {
-                eval.update_store(&tb.name, &loc, &|eval| ret(eval))
+                eval.update_store(&tb.name, &loc, ret)
             })
         }
-        StatementKind::Case(discr, branches) => {
-            expr_rec(eval, discr, &|eval, discrval| {
-                let base : Box<(dyn Fn(&mut E) -> R)>
-                    = Box::new(|e: &mut E| { ret(e) });
 
-                branches.iter().rev().fold(base, |acc, branch| {
+        StatementKind::Case(discr, branches) => {
+            expr_rec(eval, discr, &move |e, discrval| {
+                let base : Box<(dyn Fn(&mut E, bool) -> R)>
+                    = Box::new(|e: &mut E, _b: bool| { ret(e) });
+
+                branches.iter().fold(base, |acc, branch| {
                     let CaseBranchKind::CaseArm(pat, stmt) = &branch.branch;
-                    Box::new(move |e: &mut E| {
-                        e.do_match(&pat.pattern,
-                                      &discrval,
-                                      &|eval: &mut E| rec(eval, stmt, &|e: &mut E| { ret(e) }),
-                                      &|eval: &mut E| acc(eval))
+                    let v = discrval.clone();
+                    Box::new(move |e, done| {
+                        if done {
+                            acc(e, done)
+                        } else {
+                            e.do_match(&pat.pattern, &v, &|e, b| {
+                                    if b {
+                                        rec(e, stmt, &|e| { acc(e, true) })
+                                    } else {
+                                        acc(e, false)
+                                    }
+                            })
+                        }
                     })
-                })(eval)
+                })(e, false)
             })
         }
-        _ => todo!()
+        _ => todo!(),
     }
 }
